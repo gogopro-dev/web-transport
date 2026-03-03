@@ -214,6 +214,9 @@ pub enum CapsuleError {
     #[error("message too long")]
     MessageTooLong,
 
+    #[error("unknown capsule type: {0:?}")]
+    UnknownType(VarInt),
+
     #[error("varint decode error: {0:?}")]
     VarInt(#[from] VarIntUnexpectedEnd),
 
