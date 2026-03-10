@@ -6,15 +6,12 @@ use std::{
     },
 };
 
-use crate::{tungstenite, ConnectionClose, ResetStream, StopSending, Stream, StreamDir, ALPN};
+use crate::{tungstenite, ConnectionClose, ResetStream, StopSending, Stream, StreamDir};
 use crate::{Error, Frame, StreamId};
 use bytes::{Buf, BufMut, Bytes};
 use futures::{SinkExt, StreamExt};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    sync::{mpsc, watch},
-};
-use tungstenite::{client::IntoClientRequest, handshake::server, http, Message};
+use tokio::sync::{mpsc, watch};
+use tungstenite::Message;
 use web_transport_proto::VarInt;
 use web_transport_trait as generic;
 
@@ -36,6 +33,9 @@ pub struct Session {
     create_bi_id: Arc<AtomicU64>,
 
     closed: watch::Sender<Option<Error>>,
+
+    /// The negotiated application-level subprotocol, if any.
+    protocol: Option<String>,
 }
 
 struct SessionState<T> {
@@ -258,7 +258,7 @@ where
 }
 
 impl Session {
-    pub fn new<T>(ws: T, is_server: bool) -> Self
+    pub(crate) fn new<T>(ws: T, is_server: bool, protocol: Option<String>) -> Self
     where
         T: futures::Stream<Item = Result<Message, tungstenite::Error>>
             + futures::Sink<Message, Error = tungstenite::Error>
@@ -306,52 +306,8 @@ impl Session {
             create_uni_id: Default::default(),
             create_bi_id: Default::default(),
             closed,
+            protocol,
         }
-    }
-
-    pub async fn accept<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
-        socket: T,
-    ) -> Result<Session, Error> {
-        // Create callback to handle WebTransport protocol negotiation
-        let callback = |req: &server::Request,
-                        mut response: server::Response|
-         -> Result<server::Response, server::ErrorResponse> {
-            // Check for WebTransport subprotocol in Sec-WebSocket-Protocol header
-            let protocols = req
-                .headers()
-                .get(http::header::SEC_WEBSOCKET_PROTOCOL)
-                .and_then(|h| h.to_str().ok())
-                .unwrap_or_default();
-
-            if !protocols.split(',').any(|p| p.trim() == ALPN) {
-                return Err(http::Response::builder()
-                    .status(http::StatusCode::BAD_REQUEST)
-                    .body(Some("'web-transport' protocol required".to_string()))
-                    .unwrap());
-            }
-
-            // Add the selected protocol to the response
-            response.headers_mut().insert(
-                http::header::SEC_WEBSOCKET_PROTOCOL,
-                http::HeaderValue::from_str(ALPN).unwrap(),
-            );
-
-            Ok(response)
-        };
-
-        let ws = tokio_tungstenite::accept_hdr_async_with_config(socket, callback, None).await?;
-        Ok(Session::new(ws, true))
-    }
-
-    pub async fn connect(url: &str) -> Result<Session, Error> {
-        let mut request = url.into_client_request()?;
-        request.headers_mut().insert(
-            http::header::SEC_WEBSOCKET_PROTOCOL,
-            http::HeaderValue::from_str(ALPN).unwrap(),
-        );
-
-        let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
-        Ok(Session::new(ws_stream, false))
     }
 }
 
@@ -485,7 +441,7 @@ impl generic::Session for Session {
     }
 
     fn protocol(&self) -> Option<&str> {
-        None
+        self.protocol.as_deref()
     }
 }
 
