@@ -119,41 +119,8 @@ jobs:
         with:
           path: js/web-transport/artifacts
 
-      - name: Move artifacts
+      - name: Release
         working-directory: js/web-transport
-        run: bunx napi artifacts -d artifacts
-
-      - name: Check if already published
-        id: check-native
-        working-directory: js/web-transport
-        run: |
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          if npm view "${PKG_NAME}@${PKG_VERSION}" version 2>/dev/null; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "${PKG_NAME}@${PKG_VERSION} already published, skipping"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish platform packages
-        if: steps.check-native.outputs.skip != 'true'
-        working-directory: js/web-transport
-        run: |
-          for dir in npm/*/; do
-            if [ -f "$dir/package.json" ]; then
-              echo "Publishing $(basename $dir)..."
-              cd "$dir"
-              npm publish --access public
-              cd -
-            fi
-          done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish main package
-        if: steps.check-native.outputs.skip != 'true'
-        working-directory: js/web-transport
-        run: npm publish --access public
+        run: bun run release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
