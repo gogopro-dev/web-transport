@@ -1,6 +1,8 @@
+
 use url::Url;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{WebTransport, WebTransportHash, WebTransportOptions};
+use js_sys::Uint8Array;
 
 use crate::{Error, Session};
 
@@ -40,10 +42,11 @@ impl ClientBuilder {
     pub fn with_server_certificate_hashes(self, hashes: Vec<Vec<u8>>) -> Client {
         let hashes: Vec<WebTransportHash> = hashes
             .into_iter()
-            .map(|mut hash| {
+            .map(|hash| {
                 let entry = WebTransportHash::new();
                 entry.set_algorithm("sha-256");
-                entry.set_value_u8_slice(&mut hash);
+                // Workaround as .set_value_u8_slice does not work properly.
+                entry.set_value_u8_array(&Uint8Array::new_from_slice(hash.as_slice()));
                 entry
             })
             .collect();
